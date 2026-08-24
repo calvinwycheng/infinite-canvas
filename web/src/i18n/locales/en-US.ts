@@ -453,6 +453,7 @@ export default {
             modelCount: "{{count}} models",
             missingUrl: "API endpoint not set",
             keepOne: "Keep at least one provider",
+            duplicateName: "Provider names must be globally unique",
             defaultName: "Default provider",
             newName: "New provider",
             indexedName: "Provider {{index}}",
@@ -544,6 +545,7 @@ export default {
             failed: "WebDAV sync failed",
             completed: "Sync complete: {{projects}} canvases, {{assets}} assets, {{records}} records, and {{files}} files ({{bytes}}) uploaded",
             domains: {
+                channels: "Providers",
                 canvas: "Canvases",
                 assets: "My Assets",
                 imageWorkbench: "Image Studio",

@@ -6,16 +6,17 @@ import { getImageBlob, resolveImageUrl, setImageBlob } from "@/services/image-st
 import { downloadWebdavFile, uploadWebdavFile, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import type { Asset } from "@/stores/use-asset-store";
 import { useAssetStore } from "@/stores/use-asset-store";
-import type { WebdavSyncConfig } from "@/stores/use-config-store";
+import { modelOptionsFromChannels, normalizeModelOptionValue, normalizeSharedChannels, useConfigStore, type ModelChannel, type WebdavSyncConfig } from "@/stores/use-config-store";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 
 type StoredLog = Record<string, unknown> & { id?: string };
-export type AppSyncDomainKey = "canvas" | "assets" | "image-workbench" | "video-workbench";
+export type AppSyncDomainKey = "channels" | "canvas" | "assets" | "image-workbench" | "video-workbench";
 type DomainKey = AppSyncDomainKey;
 type CanvasDomainData = { projects: CanvasProject[] };
 type AssetDomainData = { assets: Asset[] };
 type LogDomainData = { logs: StoredLog[] };
+type ChannelsDomainData = { channels: ModelChannel[] };
 
 type AppSyncFile = {
     storageKey: string;
@@ -62,6 +63,7 @@ export type AppSyncResult = {
     manifestBytes: number;
     uploadedFiles: number;
     uploadedBytes: number;
+    channels: number;
 };
 
 export type AppSyncProgressEvent = {
@@ -85,7 +87,25 @@ export async function syncAppDataToWebdav(config: WebdavSyncConfig, onProgress?:
     emitProgress(onProgress, { stage: "等待本地数据加载" });
     await Promise.all([waitForHydration(useCanvasStore), waitForHydration(useAssetStore)]);
 
-    const [canvas, assets, imageLogs, videoLogs] = await Promise.all([
+    const [channels, canvas, assets, imageLogs, videoLogs] = await Promise.all([
+        syncDomain<ChannelsDomainData>(config, onProgress, {
+            key: "channels",
+            label: "渠道",
+            emptyData: { channels: [] },
+            localData: async () => ({ channels: useConfigStore.getState().config.channels }),
+            // Local edits take precedence for an existing name; remote-only channels are appended.
+            mergeData: (local, remote) => ({ channels: normalizeSharedChannels([...local.channels, ...remote.channels]) }),
+            applyData: async (data) => {
+                const store = useConfigStore.getState();
+                const channels = normalizeSharedChannels(data.channels);
+                store.updateConfig("channels", channels);
+                store.updateConfig("models", modelOptionsFromChannels(channels));
+                store.updateConfig("imageModel", normalizeModelOptionValue(store.config.imageModel, channels));
+                store.updateConfig("videoModel", normalizeModelOptionValue(store.config.videoModel, channels));
+                store.updateConfig("textModel", normalizeModelOptionValue(store.config.textModel, channels));
+                store.updateConfig("audioModel", normalizeModelOptionValue(store.config.audioModel, channels));
+            },
+        }),
         syncDomain<CanvasDomainData>(config, onProgress, {
             key: "canvas",
             label: "画布",
@@ -122,15 +142,16 @@ export async function syncAppDataToWebdav(config: WebdavSyncConfig, onProgress?:
 
     const result = {
         syncedAt: new Date().toISOString(),
-        mergedRemote: [canvas, assets, imageLogs, videoLogs].some((item) => item.mergedRemote),
+        mergedRemote: [channels, canvas, assets, imageLogs, videoLogs].some((item) => item.mergedRemote),
+        channels: channels.data.channels.length,
         projects: canvas.data.projects.length,
         assets: assets.data.assets.length,
         imageLogs: imageLogs.data.logs.length,
         videoLogs: videoLogs.data.logs.length,
         files: canvas.files + assets.files + imageLogs.files + videoLogs.files,
-        manifestBytes: canvas.manifestBytes + assets.manifestBytes + imageLogs.manifestBytes + videoLogs.manifestBytes,
-        uploadedFiles: canvas.uploadedFiles + assets.uploadedFiles + imageLogs.uploadedFiles + videoLogs.uploadedFiles,
-        uploadedBytes: canvas.uploadedBytes + assets.uploadedBytes + imageLogs.uploadedBytes + videoLogs.uploadedBytes,
+        manifestBytes: channels.manifestBytes + canvas.manifestBytes + assets.manifestBytes + imageLogs.manifestBytes + videoLogs.manifestBytes,
+        uploadedFiles: channels.uploadedFiles + canvas.uploadedFiles + assets.uploadedFiles + imageLogs.uploadedFiles + videoLogs.uploadedFiles,
+        uploadedBytes: channels.uploadedBytes + canvas.uploadedBytes + assets.uploadedBytes + imageLogs.uploadedBytes + videoLogs.uploadedBytes,
     };
     emitProgress(onProgress, { stage: "同步完成", status: "success" });
     return result;
@@ -324,6 +345,7 @@ function domainPath(domain: DomainKey, path: string) {
 
 function domainLabel(domain: DomainKey) {
     if (domain === "canvas") return "画布";
+    if (domain === "channels") return "渠道";
     if (domain === "assets") return "我的资产";
     if (domain === "image-workbench") return "生图工作台";
     return "视频创作台";

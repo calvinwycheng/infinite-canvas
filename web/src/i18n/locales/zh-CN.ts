@@ -453,6 +453,7 @@ export default {
             modelCount: "{{count}} 个模型",
             missingUrl: "未填写接口地址",
             keepOne: "至少保留一个渠道",
+            duplicateName: "渠道名称必须全局唯一",
             defaultName: "默认渠道",
             newName: "新渠道",
             indexedName: "渠道 {{index}}",
@@ -544,6 +545,7 @@ export default {
             failed: "WebDAV 同步失败",
             completed: "同步完成：{{projects}} 个画布，{{assets}} 个资产，{{records}} 条记录，本次上传 {{files}} 个文件 {{bytes}}",
             domains: {
+                channels: "渠道",
                 canvas: "画布",
                 assets: "我的资产",
                 imageWorkbench: "生图工作台",

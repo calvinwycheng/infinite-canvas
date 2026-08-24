@@ -289,6 +289,22 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
     };
 }
 
+/** Keep the shared channel registry addressable by a globally unique display name. */
+export function normalizeSharedChannels(channels: ModelChannel[]) {
+    const seenNames = new Set<string>();
+    const seenIds = new Set<string>();
+    return channels.reduce<ModelChannel[]>((result, raw, index) => {
+        const channel = createModelChannel(raw);
+        const nameKey = channel.name.trim().toLocaleLowerCase();
+        if (!nameKey || seenNames.has(nameKey)) return result;
+        if (seenIds.has(channel.id)) channel.id = `${channel.id}-${index + 1}`;
+        seenNames.add(nameKey);
+        seenIds.add(channel.id);
+        result.push(channel);
+        return result;
+    }, []);
+}
+
 export function encodeChannelModel(channelId: string, model: string) {
     return `${channelId}${CHANNEL_MODEL_SEPARATOR}${model.trim()}`;
 }
@@ -350,14 +366,14 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
 
 function normalizeChannels(config: AiConfig) {
     const persistedChannels = Array.isArray(config.channels) ? config.channels : [];
-    const channels = persistedChannels.map((channel, index) =>
+    const channels = normalizeSharedChannels(persistedChannels.map((channel, index) =>
         createModelChannel({
             ...channel,
             id: channel.id || (index === 0 ? "default" : `channel-${index + 1}`),
             name: channel.name || (index === 0 ? i18n.t("config.channels.defaultName") : i18n.t("config.channels.indexedName", { index: index + 1 })),
             models: normalizeChannelModels(channel.models),
         }),
-    );
+    ));
     if (!channels.length) {
         channels.push(
             createModelChannel({

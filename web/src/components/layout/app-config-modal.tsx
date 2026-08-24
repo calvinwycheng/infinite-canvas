@@ -35,7 +35,7 @@ const modelGroups: ModelGroup[] = [
     { capability: "audio", modelKey: "audioModel", labelKey: "config.preferences.defaultAudioModel" },
 ];
 
-const webdavDomainKeys: AppSyncDomainKey[] = ["canvas", "assets", "image-workbench", "video-workbench"];
+const webdavDomainKeys: AppSyncDomainKey[] = ["channels", "canvas", "assets", "image-workbench", "video-workbench"];
 function createWebdavDomainProgress(): Record<AppSyncDomainKey, WebdavDomainProgress> {
     return webdavDomainKeys.reduce(
         (progress, key) => ({
@@ -94,7 +94,10 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const updateChannels = (channels: ModelChannel[]) => saveConfig(withChannels(config, channels));
 
     const addChannel = () => {
-        const channel = createModelChannel({ name: t("config.channels.numberedName", { count: config.channels.length + 1 }) });
+        const usedNames = new Set(config.channels.map((item) => item.name.trim().toLocaleLowerCase()));
+        let count = config.channels.length + 1;
+        while (usedNames.has(t("config.channels.numberedName", { count }).trim().toLocaleLowerCase())) count += 1;
+        const channel = createModelChannel({ name: t("config.channels.numberedName", { count }) });
         updateChannels([...config.channels, channel]);
         setEditingChannelId(channel.id);
     };
@@ -108,6 +111,11 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     };
 
     const saveChannel = (channel: ModelChannel) => {
+        const nameKey = channel.name.trim().toLocaleLowerCase();
+        if (!nameKey || config.channels.some((item) => item.id !== channel.id && item.name.trim().toLocaleLowerCase() === nameKey)) {
+            message.error(t("config.channels.duplicateName"));
+            return;
+        }
         updateChannels(config.channels.map((item) => (item.id === channel.id ? channel : item)));
     };
 
