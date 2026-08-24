@@ -10,11 +10,11 @@ COPY web ./
 RUN bun run build
 
 # 运行镜像：只启动静态前端，AI 请求由浏览器前台直连用户自己的接口。
-FROM nginx:1.27-alpine
+FROM node:22-alpine
 
-COPY --from=web-build /app/web/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY web/docker-entrypoint.sh /docker-entrypoint.d/40-runtime-config.sh
-RUN chmod +x /docker-entrypoint.d/40-runtime-config.sh
+COPY --from=web-build /app/web/dist /usr/share/infinite-canvas
+COPY server.mjs /usr/local/bin/infinite-canvas-server.mjs
 
 EXPOSE 3000
+VOLUME ["/data"]
+CMD ["node", "/usr/local/bin/infinite-canvas-server.mjs"]
