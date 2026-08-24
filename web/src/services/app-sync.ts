@@ -13,7 +13,7 @@ import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 type StoredLog = Record<string, unknown> & { id?: string };
 export type AppSyncDomainKey = "channels" | "canvas" | "assets" | "image-workbench" | "video-workbench";
 type DomainKey = AppSyncDomainKey;
-type CanvasDomainData = { projects: CanvasProject[] };
+type CanvasDomainData = { projects: CanvasProject[]; deletedProjectIds: Record<string, string> };
 type AssetDomainData = { assets: Asset[] };
 type LogDomainData = { logs: StoredLog[] };
 type ChannelsDomainData = { channels: ModelChannel[] };
@@ -109,10 +109,14 @@ export async function syncAppDataToWebdav(config: WebdavSyncConfig, onProgress?:
         syncDomain<CanvasDomainData>(config, onProgress, {
             key: "canvas",
             label: "画布",
-            emptyData: { projects: [] },
-            localData: async () => ({ projects: useCanvasStore.getState().projects }),
-            mergeData: (local, remote) => ({ projects: mergeById(local.projects, remote.projects, "updatedAt") }),
-            applyData: async (data) => useCanvasStore.getState().replaceProjects(data.projects),
+            emptyData: { projects: [], deletedProjectIds: {} },
+            localData: async () => ({ projects: useCanvasStore.getState().projects, deletedProjectIds: useCanvasStore.getState().deletedProjectIds }),
+            mergeData: (local, remote) => mergeCanvasData(local, remote),
+            applyData: async (data) => {
+                const store = useCanvasStore.getState();
+                store.replaceProjects(data.projects);
+                store.setDeletedProjectIds(data.deletedProjectIds);
+            },
         }),
         syncDomain<AssetDomainData>(config, onProgress, {
             key: "assets",
@@ -326,6 +330,15 @@ function mergeById<T extends { id?: string }>(local: T[], remote: T[], timeKey: 
         if (!current || getTime(item as Record<string, unknown>, timeKey) >= getTime(current as Record<string, unknown>, timeKey)) items.set(id, item);
     });
     return Array.from(items.values()).sort((a, b) => getTime(b as Record<string, unknown>, timeKey) - getTime(a as Record<string, unknown>, timeKey));
+}
+
+function mergeCanvasData(local: CanvasDomainData, remote: CanvasDomainData): CanvasDomainData {
+    const deletedProjectIds = { ...(remote.deletedProjectIds || {}), ...(local.deletedProjectIds || {}) };
+    const projects = mergeById(local.projects, remote.projects, "updatedAt").filter((project) => {
+        const deletedAt = Date.parse(deletedProjectIds[project.id] || "");
+        return !deletedAt || deletedAt < Date.parse(project.updatedAt);
+    });
+    return { projects, deletedProjectIds };
 }
 
 function collectStorageKeys(value: unknown, keys = new Set<string>()) {

@@ -24,18 +24,20 @@ export type CanvasProject = {
 type CanvasStore = {
     hydrated: boolean;
     projects: CanvasProject[];
+    deletedProjectIds: Record<string, string>;
     createProject: (title?: string) => string;
     importProject: (project: Partial<CanvasProject>) => string;
     openProject: (id: string) => CanvasProject | null;
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[]) => void;
+    setDeletedProjectIds: (ids: Record<string, string>) => void;
     updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
 const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
-type PersistedCanvasState = Pick<CanvasStore, "projects">;
+type PersistedCanvasState = Pick<CanvasStore, "projects" | "deletedProjectIds">;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
 
@@ -65,6 +67,7 @@ export const useCanvasStore = create<CanvasStore>()(
         (set, get) => ({
             hydrated: false,
             projects: [],
+            deletedProjectIds: {},
             createProject: (title = i18n.t("canvas.project.untitled")) => {
                 const now = new Date().toISOString();
                 const id = nanoid();
@@ -81,7 +84,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     showImageInfo: false,
                     viewport: initialViewport,
                 };
-                set((state) => ({ projects: [project, ...state.projects] }));
+                set((state) => ({ projects: [project, ...state.projects], deletedProjectIds: Object.fromEntries(Object.entries(state.deletedProjectIds).filter(([id]) => id !== project.id)) }));
                 return id;
             },
             importProject: (source) => {
@@ -99,7 +102,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     showImageInfo: source.showImageInfo || false,
                     viewport: source.viewport || initialViewport,
                 };
-                set((state) => ({ projects: [project, ...state.projects] }));
+                set((state) => ({ projects: [project, ...state.projects], deletedProjectIds: Object.fromEntries(Object.entries(state.deletedProjectIds).filter(([id]) => id !== project.id)) }));
                 return project.id;
             },
             openProject: (id) => {
@@ -112,9 +115,12 @@ export const useCanvasStore = create<CanvasStore>()(
             deleteProjects: (ids) =>
                 set((state) => {
                     const projects = state.projects.filter((project) => !ids.includes(project.id));
-                    return { projects };
+                    const deletedProjectIds = { ...state.deletedProjectIds };
+                    ids.forEach((id) => { deletedProjectIds[id] = new Date().toISOString(); });
+                    return { projects, deletedProjectIds };
                 }),
             replaceProjects: (projects) => set({ projects }),
+            setDeletedProjectIds: (deletedProjectIds) => set({ deletedProjectIds }),
             updateProject: (id, patch) =>
                 set((state) => ({
                     projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)),
@@ -126,6 +132,7 @@ export const useCanvasStore = create<CanvasStore>()(
             partialize: (state) =>
                 ({
                     projects: state.projects,
+                    deletedProjectIds: state.deletedProjectIds,
                 }) as StorageValue<CanvasStore>["state"],
             onRehydrateStorage: () => () => {
                 useCanvasStore.setState({ hydrated: true });
