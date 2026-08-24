@@ -51,7 +51,7 @@ const canvasStorage: PersistStorage<CanvasStore> = {
     },
     setItem: (name, value) => {
         const nextState = value.state as PersistedCanvasState;
-        if (queuedPersistState && queuedPersistState.projects === nextState.projects) return;
+        if (queuedPersistState && queuedPersistState.projects === nextState.projects && queuedPersistState.deletedProjectIds === nextState.deletedProjectIds) return;
         queuedPersistState = nextState;
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => {
