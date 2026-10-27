@@ -23,7 +23,7 @@
 
 - 前端使用 Vite、React、React Router、TypeScript、Ant Design、Tailwind、Zustand。
 - 编写 Ant Design 相关代码时，参考 https://ant.design/llms-full.txt 理解组件 API、示例和设计规范，并优先结合项目当前 antd 版本与既有写法。
-- 外部服务请求统一放在 `web/src/services/api/`，由浏览器前端直连，不假设存在项目后端。
+- 外部服务请求统一放在 `web/src/services/api/`；Docker 中标准 OpenAI 格式的生图和改图通过 `server.mjs` 同源代理，其他接口按现有实现处理。
 - 全局或跨页面状态优先放在 `web/src/stores/`。
 - 已经放在全局 store 或全局 hook 中的状态/动作，组件需要时直接使用对应 store/hook，不要为了“纯组件”层层透传 props；避免一个组件传递过多参数。
 - 全局组件、全局常量、全局配置等全局性质的内容不要作为 props 或参数层层传递；哪里需要就在哪里直接从对应全局入口获取。
@@ -83,6 +83,7 @@
 
 ## 项目注意事项
 
+- Docker 中渠道里的回环地址指向容器自身；访问宿主机图片代理必须在 Compose 中显式配置 `IMAGE_PROXY_ORIGIN_OVERRIDES`，不要直接开放所有私网地址。排查改图时先确认渠道 ID、实际请求地址和上游 HTTP 状态，不要将所有网络错误直接归因于 CORS。
 - 当前画布项目和“我的素材”主要保存在浏览器本地，不要在文档中误写成已支持云同步。
 - 当前 AI API Key 存在浏览器本地，并由前端直接请求 OpenAI 兼容接口；涉及安全说明时要写清楚。
 - Docker 静态资源路径目前仍是待办项，文档中不要过度承诺生产部署已经完全验证。

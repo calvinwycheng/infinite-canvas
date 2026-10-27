@@ -306,6 +306,8 @@ function readAxiosError(error: unknown, fallback: string) {
     if (axios.isAxiosError(error)) {
         if (!error.response && error.code === "ERR_NETWORK") return apiText("corsRequired");
         const responseData = error.response?.data;
+        // Gateways may return an HTML error page; show its status instead of markup.
+        if (typeof responseData === "string" && /^\s*(?:<!doctype html|<html)/i.test(responseData)) return readStatusError(error.response?.status, fallback);
         // Prefer the API error from the response body.
         const apiMsg = readApiErrorMessage(responseData);
         if (apiMsg) return apiMsg;
@@ -749,7 +751,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const background = normalizeBackground(config.background);
     try {
         const response = await axios.post<ImageApiResponse>(
-            aiApiUrl(requestConfig, "/images/generations"),
+            "/api/image-generation",
             {
                 model: requestConfig.model,
                 prompt: withSystemPrompt(requestConfig, prompt),
@@ -761,7 +763,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 output_format: IMAGE_OUTPUT_FORMAT,
             },
             {
-                headers: aiHeaders(requestConfig, "application/json"),
+                headers: { ...aiHeaders(requestConfig, "application/json"), "x-upstream-base-url": requestConfig.baseUrl },
                 signal: options?.signal,
             },
         );

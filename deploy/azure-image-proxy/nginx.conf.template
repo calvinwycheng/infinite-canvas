@@ -1,0 +1,40 @@
+server {
+    listen 8080;
+    client_max_body_size 50m;
+    client_body_timeout 1800s;
+
+    # Preserve the complete incoming URI, including /openai/v1/images/generations.
+    location / {
+            if ($request_method = OPTIONS) {
+                add_header Access-Control-Allow-Origin "$http_origin" always;
+                add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+                add_header Access-Control-Allow-Headers "Authorization, Content-Type, Accept" always;
+                add_header Vary "Origin" always;
+                add_header Access-Control-Max-Age 86400 always;
+                return 204;
+            }
+
+            proxy_pass http://request-transformer:3001;
+            proxy_set_header Host request-transformer;
+            proxy_set_header Content-Type $http_content_type;
+            proxy_connect_timeout 30s;
+            proxy_send_timeout 1800s;
+            proxy_read_timeout 1800s;
+            send_timeout 1800s;
+            proxy_socket_keepalive on;
+            proxy_request_buffering on;
+            proxy_buffering off;
+            # Infinite Canvas sends /v1/...; Azure AI Foundry expects /openai/v1/...
+            rewrite ^/v1/(.*)$ /openai/v1/$1 break;
+            proxy_hide_header Access-Control-Allow-Origin;
+            proxy_hide_header Access-Control-Allow-Credentials;
+            proxy_hide_header Access-Control-Allow-Methods;
+            proxy_hide_header Access-Control-Allow-Headers;
+
+            add_header Access-Control-Allow-Origin "$http_origin" always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type, Accept" always;
+            add_header Vary "Origin" always;
+            add_header X-Image-Proxy "nginx-azure-image-proxy" always;
+    }
+}

@@ -6,6 +6,9 @@ services:
       - "0.0.0.0:3000:3000"
     volumes:
       - ./data:/data
+    environment:
+      # 127.0.0.1 in a channel refers to the host proxy, not the app container.
+      IMAGE_PROXY_ORIGIN_OVERRIDES: '{"http://127.0.0.1:8787":"http://host.docker.internal:8787"}'
     restart: unless-stopped
     # 统计分析（可选，默认关闭）。每家一个独立变量，填了谁就启用谁，可同时启用多家：
     # environment:

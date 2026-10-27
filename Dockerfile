@@ -9,7 +9,7 @@ COPY CHANGELOG.md /app/CHANGELOG.md
 COPY web ./
 RUN bun run build
 
-# 运行镜像：只启动静态前端，AI 请求由浏览器前台直连用户自己的接口。
+# 运行镜像：静态前端、状态文件 API 和图片同源代理。
 FROM node:22-alpine
 
 COPY --from=web-build /app/web/dist /usr/share/infinite-canvas
