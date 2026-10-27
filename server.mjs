@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { existsSync, createReadStream } from "node:fs";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 
 const root = "/usr/share/infinite-canvas";
@@ -12,6 +14,7 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", "http://localhost");
     if (url.pathname === "/health") return json(res, { ok: true });
+    if (url.pathname === "/api/image-edit" && req.method === "POST") return proxyImageEdit(req, res);
     if (url.pathname.startsWith("/api/state/")) {
       const key = decodeURIComponent(url.pathname.slice("/api/state/".length));
       const file = keyPath(key);
@@ -28,4 +31,56 @@ const server = createServer(async (req, res) => {
 server.listen(3000, "0.0.0.0");
 function json(res, value) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(value)); }
 function serve(file, res) { res.writeHead(200, { "content-type": mime[path.extname(file)] || "application/octet-stream" }); createReadStream(file).pipe(res); }
-function readBody(req) { return new Promise((resolve, reject) => { const chunks = []; req.on("data", (chunk) => chunks.push(chunk)); req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8"))); req.on("error", reject); }); }
+async function proxyImageEdit(req, res) {
+  const baseUrl = String(req.headers["x-upstream-base-url"] || "").trim().replace(/\/+$/, "");
+  let target;
+  try {
+    target = new URL(`${baseUrl.toLowerCase().endsWith("/v1") ? baseUrl : `${baseUrl}/v1`}/images/edits`);
+    if (!(await isConfiguredBaseUrl(baseUrl))) throw new Error("The model endpoint is not configured in this app");
+    await assertPublicTarget(target);
+  } catch (error) {
+    res.writeHead(400, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : "Invalid API endpoint" } }));
+  }
+  try {
+    const body = await readBody(req, 200 * 1024 * 1024);
+    const upstream = await fetch(target, {
+      method: "POST",
+      headers: { "content-type": req.headers["content-type"] || "application/octet-stream", authorization: req.headers.authorization || "" },
+      body,
+      signal: AbortSignal.timeout(120000),
+    });
+    const headers = { "content-type": upstream.headers.get("content-type") || "application/json" };
+    res.writeHead(upstream.status, headers);
+    res.end(Buffer.from(await upstream.arrayBuffer()));
+  } catch (error) {
+    res.writeHead(502, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : "Image edit proxy failed" } }));
+  }
+}
+async function assertPublicTarget(target) {
+  if (!["http:", "https:"].includes(target.protocol) || !target.hostname) throw new Error("The model endpoint must use HTTP or HTTPS");
+  const addresses = isIP(target.hostname) ? [{ address: target.hostname }] : await lookup(target.hostname, { all: true });
+  if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) throw new Error("Private and local model endpoints cannot be proxied");
+}
+function isPublicAddress(address) {
+  if (address.includes(":")) return /^[23]/i.test(address);
+  const [a, b] = address.split(".").map(Number);
+  return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168));
+}
+async function isConfiguredBaseUrl(candidate) {
+  const normalized = (value) => { try { const url = new URL(value); return `${url.origin}${url.pathname.replace(/\/+$/, "")}`.toLowerCase(); } catch { return ""; } };
+  const expected = normalized(candidate);
+  if (!expected) return false;
+  for (const file of await readdir(dataDir)) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const record = JSON.parse(await readFile(path.join(dataDir, file), "utf8"));
+      const state = JSON.parse(record.value || "{}");
+      const channels = state.state?.config?.channels || [];
+      if (channels.some((channel) => normalized(channel.baseUrl) === expected)) return true;
+    } catch { }
+  }
+  return false;
+}
+function readBody(req, limit = 20 * 1024 * 1024) { return new Promise((resolve, reject) => { const chunks = []; let bytes = 0; req.on("data", (chunk) => { bytes += chunk.length; if (bytes > limit) { reject(new Error("Request body is too large")); req.destroy(); return; } chunks.push(chunk); }); req.on("end", () => resolve(Buffer.concat(chunks))); req.on("error", reject); }); }

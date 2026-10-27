@@ -829,7 +829,10 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (mask) formData.set("mask", dataUrlToFile(mask));
 
     try {
-        const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal });
+        const response = await axios.post<ImageApiResponse>("/api/image-edit", formData, {
+            headers: { ...aiHeaders(requestConfig), "x-upstream-base-url": requestConfig.baseUrl },
+            signal: options?.signal,
+        });
         const images = parseImagePayload(response.data);
         return images;
     } catch (error) {
