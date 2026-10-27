@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { existsSync, createReadStream } from "node:fs";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 const root = "/usr/share/infinite-canvas";
@@ -36,6 +37,9 @@ server.listen(3000, "0.0.0.0");
 function json(res, value) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(value)); }
 function serve(file, res) { res.writeHead(200, { "content-type": mime[path.extname(file)] || "application/octet-stream" }); createReadStream(file).pipe(res); }
 async function proxyImage(req, res, operation) {
+  const requestId = randomUUID();
+  const startedAt = Date.now();
+  res.setHeader("x-image-proxy-request-id", requestId);
   const baseUrl = String(req.headers["x-upstream-base-url"] || "").trim().replace(/\/+$/, "");
   let target;
   try {
@@ -55,22 +59,37 @@ async function proxyImage(req, res, operation) {
   }
   try {
     const body = await readBody(req, 200 * 1024 * 1024);
+    console.log(JSON.stringify({ event: "image-request", requestId, operation, upstream: target.origin, bytes: body.length }));
     const upstream = (target.protocol === "https:" ? httpsRequest : httpRequest)(target, {
       method: "POST",
       headers: { "content-type": req.headers["content-type"] || "application/octet-stream", "content-length": body.length, authorization: req.headers.authorization || "" },
     }, (response) => {
-      console.log(`image-${operation} upstream-status=${response.statusCode}`);
-      res.writeHead(response.statusCode || 502, { "content-type": response.headers["content-type"] || "application/json" });
+      const status = response.statusCode || 502;
+      const upstreamRequestId = String(response.headers["x-request-id"] || response.headers["cf-ray"] || "").slice(0, 200);
+      console.log(JSON.stringify({ event: "image-upstream", requestId, operation, upstream: target.origin, status, elapsedMs: Date.now() - startedAt, upstreamRequestId }));
+      res.setHeader("x-image-proxy-source", "upstream");
       response.on("error", () => res.destroy());
+      // Keep structured validation/auth errors intact. Gateway pages contain no useful model error.
+      if (status >= 500 && !String(response.headers["content-type"] || "").includes("application/json")) {
+        response.resume();
+        res.writeHead(status, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ error: {
+          message: `模型服务 ${target.host} 返回 HTTP ${status}。请求已到达上游，但上游网关未正常返回结果；请稍后手动重试或联系渠道服务方。诊断编号：${requestId}${upstreamRequestId ? `；上游编号：${upstreamRequestId}` : ""}`,
+          source: "upstream", requestId, upstreamRequestId,
+        } }));
+      }
+      res.writeHead(response.statusCode || 502, { "content-type": response.headers["content-type"] || "application/json" });
       response.pipe(res);
     });
     // Avoid fetch's shorter response-header timeout for slow image models.
     const timer = setTimeout(() => upstream.destroy(new Error("Image upstream timed out")), imageTimeout);
     upstream.on("error", (error) => {
+      console.error(JSON.stringify({ event: "image-transport-error", requestId, operation, upstream: target.origin, elapsedMs: Date.now() - startedAt, code: error.code || "", timeout: error.message === "Image upstream timed out" }));
       if (res.destroyed) return;
       if (res.headersSent) return res.destroy();
+      res.setHeader("x-image-proxy-source", "transport");
       res.writeHead(error.message === "Image upstream timed out" ? 504 : 502, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: { message: error.message } }));
+      res.end(JSON.stringify({ error: { message: `画布服务连接模型上游失败：${error.message}。诊断编号：${requestId}`, source: "transport", requestId } }));
     });
     res.on("close", () => { clearTimeout(timer); upstream.destroy(); });
     upstream.end(body);
