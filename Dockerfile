@@ -14,6 +14,7 @@ FROM node:22-alpine
 
 COPY --from=web-build /app/web/dist /usr/share/infinite-canvas
 COPY server.mjs /usr/local/bin/infinite-canvas-server.mjs
+COPY image-download.mjs /usr/local/bin/image-download.mjs
 
 EXPOSE 3000
 VOLUME ["/data"]

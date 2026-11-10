@@ -6,6 +6,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { downloadImage } from "./image-download.mjs";
 
 const root = "/usr/share/infinite-canvas";
 const dataDir = process.env.DATA_DIR || "/data";
@@ -19,6 +20,18 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", "http://localhost");
     if (url.pathname === "/health") return json(res, { ok: true });
+    if (url.pathname === "/api/image-download" && req.method === "POST") {
+      res.setHeader("cache-control", "no-store");
+      try {
+        const { url: imageUrl } = JSON.parse((await readBody(req, 16384)).toString("utf8"));
+        const image = await downloadImage(imageUrl);
+        res.writeHead(200, { "content-type": image.type, "content-length": image.body.length, "x-content-type-options": "nosniff" });
+        return res.end(image.body);
+      } catch (error) {
+        res.writeHead(502, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ error: { message: `图片读取失败：${error.message}` } }));
+      }
+    }
     if (["/api/image-edit", "/api/image-generation"].includes(url.pathname) && req.method === "POST") return proxyImage(req, res, url.pathname === "/api/image-edit" ? "edits" : "generations");
     if (url.pathname.startsWith("/api/state/")) {
       const key = decodeURIComponent(url.pathname.slice("/api/state/".length));
@@ -29,6 +42,8 @@ const server = createServer(async (req, res) => {
     }
     const requested = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
     const file = path.resolve(root, `.${requested}`);
+    if (url.pathname.startsWith("/assets/") && !existsSync(file)) { res.writeHead(404); return res.end(); }
+    if (!path.extname(requested) || requested.endsWith(".html")) res.setHeader("cache-control", "no-store");
     if (!file.startsWith(root) || !existsSync(file)) return serve(path.join(root, "index.html"), res);
     return serve(file, res);
   } catch { res.writeHead(500); res.end("internal error"); }
